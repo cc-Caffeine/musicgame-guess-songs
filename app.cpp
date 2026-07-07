@@ -1,6 +1,11 @@
 #include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <fstream>
 #include <iostream>
+#include <ostream>
 #include <string>
+#include <utf8cpp/utf8.h>
 #include <vector>
 
 #define EXPECT_EQ(a, b)                                                        \
@@ -11,47 +16,91 @@
 using namespace std;
 
 // 使输入的string以*号mask
-string maskString(const string s) {
-  string out = s;
-  for (char &c : out) {
-    if (c != ' ') {
-      c = '*';
+std::string maskString(const std::string &input) {
+  std::string result;
+
+  auto it = input.begin();
+  auto end = input.end();
+
+  while (it != end) {
+    uint32_t codepoint = utf8::next(it, end);
+
+    // 保留空格
+    if (codepoint == U' ' || codepoint == '\n') {
+      result += ' ';
+    } else {
+      result += '*';
     }
   }
 
-  return out;
+  return result;
 }
 
 struct Songs {
   string openedChars;
   vector<string> songs;
   vector<string> songsShadowed;
+  int numberOfSongs;
 
+  // init
   Songs(int argc, char **argv) {
-    songs.reserve(argc);
 
     // init songs
     for (int i = 1; i < argc; i++) {
-      songs.emplace_back(argv[i]);
+      ifstream file(argv[i]);
+
+      if (!file.is_open()) {
+        cerr << "无法打开文件" << endl;
+        exit(1);
+      }
+
+      string line;
+
+      while (getline(file, line)) {
+        songs.emplace_back(line + "\n");
+      }
+
+      file.close();
     }
 
-    // init songsShad
+    // init songsShadowed
     for (auto s : songs) {
       songsShadowed.emplace_back(maskString(s));
+    }
+  }
+
+  // 格式化输出SongsShadowed
+  void printSongsShadowed() {
+    int i = 1;
+    for (auto s : songsShadowed) {
+      cout << i << ": ";
+      cout << s << endl;
+      ++i;
     }
   }
 };
 
 int main(int argc, char *argv[]) {
-
   // 检查参数够不够
   if (argc == 1) {
-    cout << "error: Need more arguments\n";
+    cerr << "error: Need more arguments\n";
     return 1;
   }
 
   // init songs
   Songs songs(argc, argv);
+
+  while (true) {
+    cout << "已经开启了的字母: " << endl;
+
+    songs.printSongsShadowed();
+
+    string line;
+    cout << "请输入选项(open, ans): ";
+    cin >> line;
+
+    cout << endl;
+  }
 
   return 0;
 }
