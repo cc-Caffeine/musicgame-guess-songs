@@ -45,7 +45,7 @@ struct Songs {
   // init
   Songs(int argc, char **argv) {
 
-    // init songs
+    // init songs, 遍历所有给出的文件
     for (int i = 1; i < argc; i++) {
       ifstream file(argv[i]);
 
@@ -94,10 +94,12 @@ int main(int argc, char *argv[]) {
     cout << "已经开启了的字母: " << endl;
 
     songs.printSongsShadowed();
+    cout << endl;
 
     string line;
-    cout << "请输入选项(open, ans): ";
+    cout << "请输入选项: ";
     cin >> line;
+    string lineFirstChar = line.begin();
 
     cout << endl;
   }
