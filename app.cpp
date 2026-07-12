@@ -1,11 +1,23 @@
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <optional>
 #include <ostream>
+#include <stdexcept>
 #include <string>
-#include <utf8cpp/utf8.h>
+#include <unicode/uchar.h>
+#include <unicode/umachine.h>
+#include <unicode/unistr.h>
+#include <unicode/urename.h>
+#include <unicode/utf16.h>
+#include <unicode/utf8.h>
+#include <unordered_map>
 #include <vector>
 
 #define EXPECT_EQ(a, b)                                                        \
@@ -16,24 +28,27 @@
 using namespace std;
 
 // 使输入的string以*号mask
-std::string maskString(const std::string &input) {
-  std::string result;
+string maskString(const string &input) {
+  icu::UnicodeString text = icu::UnicodeString::fromUTF8(input).trim();
+  icu::UnicodeString result;
 
-  auto it = input.begin();
-  auto end = input.end();
+  for (int32_t i = 0; i < text.length();) {
+    UChar32 c = text.char32At(i);
 
-  while (it != end) {
-    uint32_t codepoint = utf8::next(it, end);
-
-    // 保留空格
-    if (codepoint == U' ' || codepoint == '\n') {
-      result += ' ';
+    // 保留空格和换行
+    if (c == U' ') {
+      result.append(c);
     } else {
-      result += '*';
+      result.append((UChar32)'*');
     }
+
+    i += U16_LENGTH(c);
   }
 
-  return result;
+  string output;
+  result.toUTF8String(output);
+
+  return output;
 }
 
 struct Songs {
@@ -81,6 +96,24 @@ struct Songs {
 };
 
 int main(int argc, char *argv[]) {
+  Songs songs(argc, argv);
+  // 注册命令
+  using Command = function<void(const string)>;
+  unordered_map<string, Command> commands;
+  commands["ans"] = [songs](const auto arg) {
+    int i;
+    try {
+      i = stoi(arg);
+    } catch (const exception &e) {
+      cout << "不是一个数字" << endl;
+      return 1;
+    }
+
+    if (i == songs.numberOfSongs) {
+      songs.songsShadowed[--i] = songs.songs.at(--i);
+    }
+  };
+
   // 检查参数够不够
   if (argc == 1) {
     cerr << "error: Need more arguments\n";
@@ -88,18 +121,32 @@ int main(int argc, char *argv[]) {
   }
 
   // init songs
-  Songs songs(argc, argv);
 
   while (true) {
-    cout << "已经开启了的字母: " << endl;
+    cout << "已经开启了的字母: " << songs.openedChars << endl;
 
     songs.printSongsShadowed();
+    // 手动换行
     cout << endl;
 
-    string line;
+    vector<string> args(2);
     cout << "请输入选项: ";
-    cin >> line;
-    string lineFirstChar = line.begin();
+    cin >> args[0] >> args[1];
+    string cmd = args[0];
+    string arg = args[1];
+
+    auto it = commands.find(cmd);
+
+    if (it == commands.end()) {
+      cout << "未知的命令" << endl;
+    } else {
+      it->second(arg);
+    }
+    // icu::UnicodeString uline = icu::UnicodeString::fromUTF8(line);
+    // if (uline.length() == 1) {
+    //   uline.toUTF8String(songs.openedChars);
+    //   songs.openedChars.append(line);
+    // }
 
     cout << endl;
   }
