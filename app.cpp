@@ -22,10 +22,12 @@
   }
 
 using namespace std;
+using icu::UnicodeString;
 
-// 使输入的string以*号mask
-string maskString(const string &input) {
-  icu::UnicodeString text = icu::UnicodeString::fromUTF8(input).trim();
+// 使输入的字符串以*号mask
+icu::UnicodeString maskString(const icu::UnicodeString &input) {
+  icu::UnicodeString text = input;
+  text.trim();
   icu::UnicodeString result;
 
   for (int32_t i = 0; i < text.length();) {
@@ -41,17 +43,34 @@ string maskString(const string &input) {
     i += U16_LENGTH(c);
   }
 
-  string output;
-  result.toUTF8String(output);
+  return result;
+}
 
-  return output;
+void replaceCodePoint(UnicodeString &target, int32_t targetIndex,
+                      const UnicodeString &source, int32_t sourceIndex) {
+  // 找目标 code point 的 UTF-16 位置
+  int32_t targetPos = target.moveIndex32(0, targetIndex);
+
+  // 得到目标 code point
+  UChar32 oldCp = target.char32At(targetPos);
+
+  // 目标占用的 UTF-16 长度
+  int32_t oldLength = U16_LENGTH(oldCp);
+
+  // 找源 code point
+  int32_t sourcePos = source.moveIndex32(0, sourceIndex);
+
+  UChar32 newCp = source.char32At(sourcePos);
+
+  // 替换
+  target.replace(targetPos, oldLength, UnicodeString(newCp));
 }
 
 struct Songs {
-  string openedChars;
-  vector<string> songs;
-  vector<string> songsShadowed;
-  int numberOfSongs;
+  icu::UnicodeString openedChars;
+  vector<icu::UnicodeString> songs;
+  vector<icu::UnicodeString> songsShadowed;
+  int numberOfSongs = 0;
 
   // init
   Songs(int argc, char **argv) {
@@ -68,25 +87,25 @@ struct Songs {
       string line;
 
       while (getline(file, line)) {
-
-        songs.emplace_back(line);
+        icu::UnicodeString song = icu::UnicodeString::fromUTF8(line);
+        songs.emplace_back(song);
+        songsShadowed.emplace_back(maskString(song));
       }
 
       file.close();
     }
 
-    // init songsShadowed
-    for (auto s : songs) {
-      songsShadowed.emplace_back(maskString(s));
-    }
+    numberOfSongs = static_cast<int>(songs.size());
   }
 
   // 格式化输出SongsShadowed
   void printSongsShadowed() {
     int i = 1;
-    for (auto s : songsShadowed) {
+    for (const auto &s : songsShadowed) {
+      string output;
+      s.toUTF8String(output);
       cout << i << ": ";
-      cout << s << endl;
+      cout << output << endl;
       ++i;
     }
   }
@@ -98,21 +117,44 @@ int main(int argc, char *argv[]) {
   // 注册命令
   using Command = function<int(const string)>;
   unordered_map<string, Command> commands;
+  // ans 命令加上一个数字: 完全打开一首歌
   commands["ans"] = [&songs](const auto arg) {
     int i;
     try {
-      i = stoi(arg);
+      i = stoi(arg) - 1;
     } catch (const exception &e) {
       cout << "不是一个数字" << endl;
       return 1;
     }
 
-    if (i > songs.numberOfSongs) {
+    if (i < 0 || i >= songs.numberOfSongs) {
       cout << "数字过大" << endl;
       return 1;
     }
 
-    songs.songsShadowed.at(i--) = songs.songs.at(i--);
+    songs.songsShadowed.at(i) = songs.songs.at(i);
+    return 0;
+  };
+  // open 命令加上一个字符: 开字母
+  commands["open"] = [&songs](const auto arg) {
+    icu::UnicodeString u = icu::UnicodeString::fromUTF8(arg);
+    // 得到输入中的第一个point
+    UChar32 c = u.char32At(0);
+
+    for (auto s : songs.songs) {
+      int indexOfSongs = 0;
+      for (auto cp : s) {
+        int indexOfC = 0;
+        if (c == cp) {
+          replaceCodePoint(songs.songsShadowed.at(indexOfSongs), indexOfC,
+                           songs.songs.at(indexOfSongs), indexOfC);
+        }
+        indexOfC++;
+      }
+      indexOfSongs++;
+    }
+
+    // todo!
     return 0;
   };
 
@@ -125,7 +167,9 @@ int main(int argc, char *argv[]) {
   // init songs
 
   while (true) {
-    cout << "已经开启了的字母: " << songs.openedChars << endl;
+    string openedChars;
+    songs.openedChars.toUTF8String(openedChars);
+    cout << "已经开启了的字母: " << openedChars << endl;
 
     songs.printSongsShadowed();
     // 手动换行
@@ -144,11 +188,6 @@ int main(int argc, char *argv[]) {
     } else {
       it->second(arg);
     }
-    // icu::UnicodeString uline = icu::UnicodeString::fromUTF8(line);
-    // if (uline.length() == 1) {
-    //   uline.toUTF8String(songs.openedChars);
-    //   songs.openedChars.append(line);
-    // }
 
     cout << endl;
   }
