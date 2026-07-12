@@ -1,11 +1,13 @@
 #include <cassert>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <functional>
 #include <iostream>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <unicode/uchar.h>
 #include <unicode/umachine.h>
@@ -24,10 +26,22 @@
 using namespace std;
 using icu::UnicodeString;
 
+vector<string> split(const string &line) {
+  vector<string> result;
+  string word;
+  stringstream ss(line);
+
+  while (ss >> word) {
+    result.push_back(word);
+  }
+
+  return result;
+}
+
 // 使输入的字符串以*号mask
 icu::UnicodeString maskString(const icu::UnicodeString &input) {
-  icu::UnicodeString text = input;
-  text.trim();
+  // 不要 trim；songsShadowed 必须和 songs 保持相同的字符顺序。
+  const icu::UnicodeString &text = input;
   icu::UnicodeString result;
 
   for (int32_t i = 0; i < text.length();) {
@@ -44,26 +58,6 @@ icu::UnicodeString maskString(const icu::UnicodeString &input) {
   }
 
   return result;
-}
-
-void replaceCodePoint(UnicodeString &target, int32_t targetIndex,
-                      const UnicodeString &source, int32_t sourceIndex) {
-  // 找目标 code point 的 UTF-16 位置
-  int32_t targetPos = target.moveIndex32(0, targetIndex);
-
-  // 得到目标 code point
-  UChar32 oldCp = target.char32At(targetPos);
-
-  // 目标占用的 UTF-16 长度
-  int32_t oldLength = U16_LENGTH(oldCp);
-
-  // 找源 code point
-  int32_t sourcePos = source.moveIndex32(0, sourceIndex);
-
-  UChar32 newCp = source.char32At(sourcePos);
-
-  // 替换
-  target.replace(targetPos, oldLength, UnicodeString(newCp));
 }
 
 struct Songs {
@@ -137,24 +131,53 @@ int main(int argc, char *argv[]) {
   };
   // open 命令加上一个字符: 开字母
   commands["open"] = [&songs](const auto arg) {
-    icu::UnicodeString u = icu::UnicodeString::fromUTF8(arg);
-    // 得到输入中的第一个point
-    UChar32 c = u.char32At(0);
-
-    for (auto s : songs.songs) {
-      int indexOfSongs = 0;
-      for (auto cp : s) {
-        int indexOfC = 0;
-        if (c == cp) {
-          replaceCodePoint(songs.songsShadowed.at(indexOfSongs), indexOfC,
-                           songs.songs.at(indexOfSongs), indexOfC);
-        }
-        indexOfC++;
-      }
-      indexOfSongs++;
+    const icu::UnicodeString input = icu::UnicodeString::fromUTF8(arg);
+    if (input.isEmpty()) {
+      cout << "请输入一个字符" << endl;
+      return 1;
     }
 
-    // todo!
+    // 按 Unicode code point 读取，而不是按 UTF-16 code unit 读取。
+    const UChar32 target = input.char32At(0);
+    const UChar32 foldedTarget = u_foldCase(target, U_FOLD_CASE_DEFAULT);
+
+    // 记录已经开启的字符，避免 a 和 A 被重复添加。
+    bool alreadyOpened = false;
+    for (int32_t pos = 0; pos < songs.openedChars.length();) {
+      const UChar32 openedChar = songs.openedChars.char32At(pos);
+      if (u_foldCase(openedChar, U_FOLD_CASE_DEFAULT) == foldedTarget) {
+        alreadyOpened = true;
+        break;
+      }
+      pos += U16_LENGTH(openedChar);
+    }
+
+    if (!alreadyOpened) {
+      songs.openedChars.append(target);
+    }
+
+    for (size_t songIndex = 0; songIndex < songs.songs.size(); ++songIndex) {
+      const UnicodeString &song = songs.songs.at(songIndex);
+      UnicodeString &shadowed = songs.songsShadowed.at(songIndex);
+
+      int32_t songPos = 0;
+      int32_t shadowedPos = 0;
+
+      while (songPos < song.length() && shadowedPos < shadowed.length()) {
+        const UChar32 songChar = song.char32At(songPos);
+        const UChar32 shadowedChar = shadowed.char32At(shadowedPos);
+        const int32_t shadowedLength = U16_LENGTH(shadowedChar);
+
+        if (u_foldCase(songChar, U_FOLD_CASE_DEFAULT) == foldedTarget) {
+          shadowed.replace(shadowedPos, shadowedLength,
+                           UnicodeString(songChar));
+        }
+
+        songPos += U16_LENGTH(songChar);
+        shadowedPos += shadowedLength;
+      }
+    }
+
     return 0;
   };
 
@@ -174,12 +197,41 @@ int main(int argc, char *argv[]) {
     songs.printSongsShadowed();
     // 手动换行
     cout << endl;
-
-    vector<string> args(2);
     cout << "请输入选项: ";
-    cin >> args[0] >> args[1];
-    string cmd = args[0];
-    string arg = args[1];
+
+    string line;
+    if (!getline(cin >> ws, line)) {
+      cout << endl;
+      break; // Ctrl+D 或输入文件结束时退出
+    }
+
+    istringstream input(line);
+
+    string cmd;
+    string arg;
+
+    if (!(input >> cmd)) {
+      cout << "请输入命令" << endl;
+      continue;
+    }
+
+    if (!(input >> arg)) {
+      cout << "缺少参数." << endl;
+      cout << endl;
+      continue;
+    }
+
+    // cout << "请输入选项: ";
+    // string line;
+    // getline(cin, line);
+    // if (line.empty()) {
+    //   continue;
+    // }
+    //
+    // vector<string> args = split(line);
+    // cin >> args[0] >> args[1];
+    // string cmd = args[0];
+    // string arg = args[1];
 
     auto it = commands.find(cmd);
 

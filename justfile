@@ -1,7 +1,7 @@
 build:
-  g++ -std=c++23 -o app app.cpp -licuuc -Wall 
+  g++ -std=c++23 -Wall -Wextra -o build/app src/app.cpp -licuuc
 
 run: build
-  ./app
+  ./build/app data/songs.txt
 
 
