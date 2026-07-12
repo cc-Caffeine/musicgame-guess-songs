@@ -1,15 +1,11 @@
 #include <cassert>
-#include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <functional>
 #include <iostream>
-#include <optional>
 #include <ostream>
-#include <stdexcept>
 #include <string>
 #include <unicode/uchar.h>
 #include <unicode/umachine.h>
@@ -72,7 +68,8 @@ struct Songs {
       string line;
 
       while (getline(file, line)) {
-        songs.emplace_back(line + "\n");
+
+        songs.emplace_back(line);
       }
 
       file.close();
@@ -97,10 +94,11 @@ struct Songs {
 
 int main(int argc, char *argv[]) {
   Songs songs(argc, argv);
+
   // 注册命令
-  using Command = function<void(const string)>;
+  using Command = function<int(const string)>;
   unordered_map<string, Command> commands;
-  commands["ans"] = [songs](const auto arg) {
+  commands["ans"] = [&songs](const auto arg) {
     int i;
     try {
       i = stoi(arg);
@@ -109,9 +107,13 @@ int main(int argc, char *argv[]) {
       return 1;
     }
 
-    if (i == songs.numberOfSongs) {
-      songs.songsShadowed[--i] = songs.songs.at(--i);
+    if (i > songs.numberOfSongs) {
+      cout << "数字过大" << endl;
+      return 1;
     }
+
+    songs.songsShadowed.at(i--) = songs.songs.at(i--);
+    return 0;
   };
 
   // 检查参数够不够
